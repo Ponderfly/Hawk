@@ -2,13 +2,13 @@
 
 namespace Hawk.ETL.Plugins.Transformers
 {
-    [XFrmWork("提取数字","提取当前列中出现的数值" )]
+    [XFrmWork("NumberTF","NumberTF_desc" )]
     public class NumberTF : RegexTF
     {
         public NumberTF()
         {
             Script = @"(-?\d+)(\.\d+)?";
-            Index = 0;
+            Index = "0";
         }
 
                 

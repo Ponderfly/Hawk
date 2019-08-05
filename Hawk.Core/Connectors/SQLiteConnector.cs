@@ -15,10 +15,11 @@ using Hawk.Core.Utils.Plugins;
 
 namespace Hawk.Core.Connectors
 {
-    [XFrmWork("SQLite数据库", "提供SQLite交互的数据库服务", "")]
+    [XFrmWork("SQLiteDatabase", "SQLiteDatabase_desc", "")]
     public class SQLiteDatabase : DBConnectorBase
     {
         private string _dbName;
+        private SQLiteConnection cnn;
 
         #region Methods
 
@@ -33,10 +34,6 @@ namespace Hawk.Core.Connectors
 
             try
             {
-                var cnn = new SQLiteConnection(ConnectionString);
-
-                cnn.Open();
-
                 var mycommand = new SQLiteCommand(cnn);
 
                 mycommand.CommandText = sql;
@@ -46,13 +43,11 @@ namespace Hawk.Core.Connectors
                 dt.Load(reader);
 
                 reader.Close();
-
-                cnn.Close();
             }
 
             catch (Exception e)
             {
-                XLogSys.Print.Error("SQLLite连接器异常", e);
+                XLogSys.Print.Error(GlobalHelper.FormatArgs("key_81", e.Message));
             }
 
             return dt;
@@ -75,26 +70,26 @@ namespace Hawk.Core.Connectors
         }
 
         [Browsable(false)]
-        [LocalizedDisplayName("服务器地址")]
-        [LocalizedCategory("1.连接管理")]
+        [LocalizedDisplayName("key_23")]
+        [LocalizedCategory("key_24")]
         [PropertyOrder(2)]
         public override string Server { get; set; }
 
         [Browsable(false)]
-        [LocalizedDisplayName("用户名")]
-        [LocalizedCategory("1.连接管理")]
+        [LocalizedDisplayName("key_25")]
+        [LocalizedCategory("key_24")]
         [PropertyOrder(3)]
         public override string UserName { get; set; }
 
         [Browsable(false)]
-        [LocalizedDisplayName("密码")]
-        [LocalizedCategory("1.连接管理")]
+        [LocalizedDisplayName("key_26")]
+        [LocalizedCategory("key_24")]
         [PropertyOrder(4)]
         //  [PropertyEditor("PasswordEditor")]
         public override string Password { get; set; }
 
-        [LocalizedCategory("1.连接管理")]
-        [LocalizedDisplayName("浏览路径")]
+        [LocalizedCategory("key_24")]
+        [LocalizedDisplayName("key_82")]
         [PropertyOrder(3)]
         public ReadOnlyCollection<ICommand> Commands2
         {
@@ -104,8 +99,8 @@ namespace Hawk.Core.Connectors
                     this,
                     new[]
                     {
-                        new Command("加载", obj => LoadOldDB(), icon: "disk"),
-                        new Command("新建", obj => CreateNewDB(), icon: "add")
+                        new Command(GlobalHelper.Get("key_83"), obj => LoadOldDB(), icon: "disk"),
+                        new Command(GlobalHelper.Get("key_84"), obj => CreateNewDB(), icon: "add")
                     });
             }
         }
@@ -117,7 +112,10 @@ namespace Hawk.Core.Connectors
             saveTifFileDialog.Filter = "*.db|*.db";
             saveTifFileDialog.DefaultExt = "db"; //缺省默认后缀名
             if (saveTifFileDialog.ShowDialog() == DialogResult.OK)
+            {
                 DBName = saveTifFileDialog.FileName;
+                SQLiteConnection.CreateFile(DBName);
+            }
             SafeConnectDB();
         }
 
@@ -125,16 +123,16 @@ namespace Hawk.Core.Connectors
         {
             var dialog = new OpenFileDialog();
             dialog.Multiselect = false; //该值确定是否可以选择多个文件
-            dialog.Title = "请选择sqlite数据库文件";
-            dialog.Filter = "所有文件(*.*)|*.db";
+            dialog.Title = GlobalHelper.Get("key_85");
+            dialog.Filter = "所有文件(*.db)|*.db";
             if (dialog.ShowDialog() == DialogResult.OK)
                 DBName = dialog.FileName;
             SafeConnectDB();
         }
 
-        [LocalizedCategory("1.连接管理")]
-        [LocalizedDisplayName("数据库路径")]
-        [LocalizedDescription("例如d:\\test\\mydb.sqlite")]
+        [LocalizedCategory("key_24")]
+        [LocalizedDisplayName("key_86")]
+        [LocalizedDescription("key_87")]
         [PropertyOrder(2)]
         public override string DBName
         {
@@ -149,7 +147,13 @@ namespace Hawk.Core.Connectors
             }
         }
 
-        [LocalizedDisplayName("执行")]
+        public override void DropTable(string tableName)
+        {
+            var sql = $"Drop TABLE {GetTableName(tableName)}";
+            GetDataTable(sql);
+        }
+
+        [LocalizedDisplayName("key_34")]
         [PropertyOrder(20)]
         public override ReadOnlyCollection<ICommand> Commands
         {
@@ -159,15 +163,16 @@ namespace Hawk.Core.Connectors
                     this,
                     new[]
                     {
-                        new Command("连接数据库", obj => { SafeConnectDB(); }, obj => IsUseable == false, "connect"),
-                        new Command("关闭连接", obj => CloseDB(), obj => IsUseable, "close")
+                        new Command(GlobalHelper.Get("connect_db"), obj => { SafeConnectDB(); },
+                            obj => IsUseable == false, "connect"),
+                        new Command(GlobalHelper.Get("key_36"), obj => CloseDB(), obj => IsUseable, "close")
                     });
             }
         }
 
         private void SafeConnectDB()
         {
-            ControlExtended.SafeInvoke(() => ConnectDB(), LogType.Important, "连接数据库");
+            ControlExtended.SafeInvoke(() => ConnectDB(), LogType.Important, GlobalHelper.Get("connect_db"));
             if (IsUseable)
                 RefreshTableNames();
         }
@@ -188,41 +193,29 @@ namespace Hawk.Core.Connectors
 
         #region Public Methods
 
-        public override void BatchInsert(IEnumerable<IFreeDocument> source, string dbTableName)
+        public override void BatchInsert(IEnumerable<IFreeDocument> source, List<string> keys, string dbTableName)
         {
-            using (var cnn = new SQLiteConnection(ConnectionString))
+            if(this.IsUseable==false)
+                return;
+            using (var cmd = new SQLiteCommand(this.cnn))
             {
-                cnn.Open();
-
                 using (var mytrans = cnn.BeginTransaction())
                 {
-                    foreach (var data in source.Init(d =>
+                    foreach (var data in source)
                     {
-                        if (TableNames.Collection.FirstOrDefault(d2 => d2.Name == dbTableName) == null)
-                        {
-                            var txt = d.DictSerialize(Scenario.Database);
-                            var sb = string.Join(",",
-                                txt.Select(d2 => $"{d2.Key} {DataTypeConverter.ToType(d2.Value)}"));
-                            var sql = $"CREATE TABLE {GetTableName(dbTableName)} ({sb})";
-                            ExecuteNonQuery(sql, cnn );
-                        }
-                        return true;
-                    }))
                         try
                         {
-                            var sql = Insert(data, dbTableName);
-                            var mycommand = new SQLiteCommand(sql, cnn, mytrans);
-                            mycommand.CommandTimeout = 180;
-                            mycommand.ExecuteNonQuery();
+                            var sql = Insert(data, keys, dbTableName);
+                            cmd.CommandText = sql;
+                            cmd.ExecuteNonQuery();
                         }
                         catch (Exception ex)
                         {
-                            XLogSys.Print.Warn($"insert sqllite database error {ex.Message}");
+                            XLogSys.Print.Warn($"insert sqlite database error {ex.Message}");
                         }
 
+                    }
                     mytrans.Commit();
-
-                    cnn.Close();
                 }
             }
         }
@@ -231,20 +224,19 @@ namespace Hawk.Core.Connectors
         public override bool CloseDB()
         {
             IsUseable = false;
-
+            cnn.Close();
             return true;
         }
 
         public override bool ConnectDB()
         {
             ConnectionString = GetConnectString();
-            var cnn = new SQLiteConnection(ConnectionString);
+            cnn = new SQLiteConnection(ConnectionString);
 
             try
             {
                 cnn.Open();
                 IsUseable = true;
-                cnn.Close();
                 return true;
             }
             catch (Exception ex)
@@ -258,12 +250,14 @@ namespace Hawk.Core.Connectors
         public override bool CreateTable(IFreeDocument example, string name)
         {
             if (string.IsNullOrEmpty(name))
-                throw new Exception("数据库表名不能为空");
-            var txt = example.DictSerialize(Scenario.Database);
+                throw new Exception(GlobalHelper.Get("key_29"));
+            var txt = example.DictSerialize();
             var sb = string.Join(",", txt.Select(d => $"{d.Key} {DataTypeConverter.ToType(d.Value)}"));
-            var sql = $"CREATE TABLE {GetTableName(name)} ({sb})";
+            var sql = $"CREATE TABLE {GetTableName(name)} ({sb});";
             ExecuteNonQuery(sql);
             RefreshTableNames();
+            if (TableNames.Collection.FirstOrDefault(d => d.Name == name) == null)
+                return false;
             return true;
         }
 
@@ -275,18 +269,11 @@ namespace Hawk.Core.Connectors
         /// <returns>An Integer containing the number of rows updated.</returns>
         protected override int ExecuteNonQuery(string sql)
         {
-            var col = 0;
-            using (var cnn = new SQLiteConnection(ConnectionString))
-            {
-                cnn.Open();
-
-                using (var mytrans = cnn.BeginTransaction())
-                {
-                    return ExecuteNonQuery(sql, cnn );
-                }
-            }
-
-            return col;
+          //  using (cnn.BeginTransaction())
+           // {
+                var result = ExecuteNonQuery(sql, cnn);
+                return result;
+           // }
         }
 
 
@@ -296,20 +283,15 @@ namespace Hawk.Core.Connectors
 
 
             var mycommand = new SQLiteCommand(sql, cnn);
-
             try
             {
                 mycommand.CommandTimeout = 180;
-
                 col = mycommand.ExecuteNonQuery();
-
             }
-
             catch (Exception e)
             {
-                XLogSys.Print.Warn($"sql执行错误 {e.Message}  sql= {sql} ");
+                XLogSys.Print.Warn(GlobalHelper.Get("key_88") + e.Message + GlobalHelper.Get("key_89") + sql);
             }
-
             finally
             {
                 mycommand.Dispose();
@@ -329,8 +311,6 @@ namespace Hawk.Core.Connectors
         public bool ExecuteNonQuery(string sql, IList<SQLiteParameter> cmdparams)
         {
             var successState = false;
-            var cnn = new SQLiteConnection(ConnectionString);
-            cnn.Open();
 
             using (var mytrans = cnn.BeginTransaction())
             {
@@ -347,8 +327,6 @@ namespace Hawk.Core.Connectors
                     mytrans.Commit();
 
                     successState = true;
-
-                    cnn.Close();
                 }
 
                 catch (Exception e)
@@ -361,8 +339,6 @@ namespace Hawk.Core.Connectors
                 finally
                 {
                     mycommand.Dispose();
-
-                    cnn.Close();
                 }
             }
 
@@ -402,10 +378,6 @@ namespace Hawk.Core.Connectors
 
             try
             {
-                var cnn = new SQLiteConnection(ConnectionString);
-
-                cnn.Open();
-
                 var mycommand = new SQLiteCommand(cnn);
 
                 mycommand.CommandText = sql;
@@ -419,8 +391,6 @@ namespace Hawk.Core.Connectors
                 dt.Load(reader);
 
                 reader.Close();
-
-                cnn.Close();
             }
 
             catch (Exception e)
@@ -448,12 +418,14 @@ namespace Hawk.Core.Connectors
 
         public override List<TableInfo> RefreshTableNames()
         {
-            var items = GetDataTable("select name from sqlite_master where type='table' order by name");
+            if (!this.IsUseable)
+                return new List<TableInfo>();
+            var items = GetDataTable("select name from sqlite_master where type='table' order by name;");
             var res = new List<TableInfo>();
             foreach (DataRow dr in items.Rows)
             {
                 var name = dr.ItemArray[0].ToString();
-                var size = GetDataTable($"select count(*) from  {name}").Rows[0].ItemArray[0];
+                var size = GetDataTable($"select count(*) from  {name};").Rows[0].ItemArray[0];
                 res.Add(new TableInfo(name, this) {Size = int.Parse(size.ToString())});
             }
             TableNames.SetSource(res);

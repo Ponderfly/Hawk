@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Hawk.Core.Utils;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -8,23 +9,23 @@ using System.Windows.Controls.WpfPropertyGrid.Controls;
 using System.Windows.Forms;
 using System.Windows.Input;
 using Hawk.Core.Connectors;
-using Hawk.Core.Utils;
 using Hawk.Core.Utils.MVVM;
 using Hawk.Core.Utils.Plugins;
 using Hawk.ETL.Crawlers;
 using Hawk.ETL.Interfaces;
+using Hawk.ETL.Plugins.Transformers;
 using EncodingType = Hawk.Core.Utils.EncodingType;
 
 namespace Hawk.ETL.Plugins.Generators
 {
-    [XFrmWork("读取文件文本", "获取文件中的全部纯文本内容，注意与【读取文件数据】区别","clipboard_file")]
-    public class ReadFileTextGE : GeneratorBase 
+    [XFrmWork("ReadFileTextGE", "ReadFileTextGE_desc","clipboard_file")]
+    public class ReadFileTextGE : TransformerBase 
     {
-        private readonly BuffHelper<IFreeDocument> buffHelper = new BuffHelper<IFreeDocument>(50);
+        private readonly BuffHelper<string> buffHelper = new BuffHelper<string>(20);
         protected string _fileName = "";
 
-        [LocalizedDisplayName("路径")]
-        [LocalizedDescription("例如d:\\test\\mydb.sqlite")]
+        [LocalizedDisplayName("key_163")]
+        [LocalizedDescription("key_87")]
         [PropertyOrder(2)]
         public virtual string FileName
         {
@@ -38,8 +39,9 @@ namespace Hawk.ETL.Plugins.Generators
                 }
             }
         }
-
-        [LocalizedDisplayName("执行")]
+        [Browsable(false)]
+        public override string KeyConfig => FileName;
+        [LocalizedDisplayName("key_34")]
         [PropertyOrder(3)]
         public ReadOnlyCollection<ICommand> Commands2
         {
@@ -49,12 +51,12 @@ namespace Hawk.ETL.Plugins.Generators
                     this,
                     new[]
                     {
-                        new Command("选择文件", obj => Open(), icon: "disk")
+                        new Command(GlobalHelper.Get("key_437"), obj => Open(), icon: "disk")
                     });
             }
         }
 
-        [LocalizedDisplayName("编码")]
+        [LocalizedDisplayName("key_438")]
         [PropertyOrder(4)]
         public virtual EncodingType EncodingType { get; set; }
 
@@ -62,7 +64,7 @@ namespace Hawk.ETL.Plugins.Generators
         {
             var dialog = new OpenFileDialog();
             dialog.Multiselect = false; //该值确定是否可以选择多个文件
-            dialog.Title = "请选择要读取的文件";
+            dialog.Title = GlobalHelper.Get("key_439");
             dialog.Filter = "所有文件(*.*)|*.*";
             if (dialog.ShowDialog() == DialogResult.OK)
             {
@@ -70,31 +72,28 @@ namespace Hawk.ETL.Plugins.Generators
             }
         }
 
-        public override IEnumerable<IFreeDocument> Generate(IFreeDocument document = null)
+        public override object TransformData(IFreeDocument document)
         {
             var path = FileName;
             var result = document?.Query(FileName);
             if (result != null)
                 path = result;
-            // var item = datas[Column].ToString();
             var res = buffHelper.Get(path);
             if (res != null)
             {
-                yield return res;
-                yield break;
+                return res;
             }
-            var content = File.ReadAllText(path, AttributeHelper.GetEncoding(EncodingType));
-            var item = new FreeDocument();
-
-            item.Add(Column, content);
-            buffHelper.Set(path, item);
-            yield return item;
+           
+            res = File.ReadAllText(path, AttributeHelper.GetEncoding(EncodingType));
+            buffHelper.Set(path, res);
+            return res;
         }
+      
     }
 
 
-    [XFrmWork("读取文件数据", "从文件中读取数据内容，为了保证正确读取，需配置文件格式和读取属性","clipboard_file")]
-    public class ReadFileGe : ReadFileTextGE
+    [XFrmWork("ReadFileGe", "ReadFileGe_desc","clipboard_file")]
+    public class ReadFileGe : GeneratorBase
     {
         private readonly BuffHelper<List<FreeDocument>> buffHelper =new BuffHelper<List<FreeDocument>>(50);
         public ReadFileGe()
@@ -111,11 +110,14 @@ namespace Hawk.ETL.Plugins.Generators
             };
             FileName = "";
         }
+        protected string _fileName = "";
 
-        [LocalizedDisplayName("路径")]
-        [LocalizedDescription("例如d:\\test\\mydb.sqlite")]
+        [Browsable(false)]
+        public override string KeyConfig => FileName; 
+        [LocalizedDisplayName("key_163")]
+        [LocalizedDescription("key_87")]
         [PropertyOrder(2)]
-        public override string FileName
+        public  string FileName
         {
             get { return _fileName; }
             set
@@ -139,15 +141,40 @@ namespace Hawk.ETL.Plugins.Generators
             }
             }
         }
+        [LocalizedDisplayName("key_34")]
+        [PropertyOrder(3)]
+        public ReadOnlyCollection<ICommand> Commands2
+        {
+            get
+            {
+                return CommandBuilder.GetCommands(
+                    this,
+                    new[]
+                    {
+                        new Command(GlobalHelper.Get("key_437"), obj => Open(), icon: "disk")
+                    });
+            }
+        }
+        private void Open()
+        {
+            var dialog = new OpenFileDialog();
+            dialog.Multiselect = false; //该值确定是否可以选择多个文件
+            dialog.Title = GlobalHelper.Get("key_439");
+            dialog.Filter = "所有文件(*.*)|*.*";
+            if (dialog.ShowDialog() == DialogResult.OK)
+            {
+                FileName = dialog.FileName;
+            }
+        }
 
-        [LocalizedDisplayName("文件格式")]
+        [LocalizedDisplayName("key_442")]
         [PropertyOrder(0)]
         public ExtendSelector<XFrmWorkAttribute> ConnectorSelector { get; set; }
 
         [Browsable(false)]
-        public override EncodingType EncodingType { get; set; }
+        public  EncodingType EncodingType { get; set; }
 
-        [LocalizedDisplayName(("读取配置"))]
+        [LocalizedDisplayName(("key_443"))]
         [PropertyOrder(1)]
         [TypeConverter(typeof (ExpandableObjectConverter))]
         public IFileConnector Connector { get; set; }
@@ -204,13 +231,13 @@ namespace Hawk.ETL.Plugins.Generators
     }
 
 
-    [XFrmWork("写入文件文本", "写入文件中的文本，由于在并行模式下同时写入文件可能会导致问题，因此尽量使用串行模式")]
+    [XFrmWork("WriteFileTextTF", "WriteFileTextTF_desc")]
     public class WriteFileTextTF : DataExecutorBase
     {
         private string _fileName = "";
 
-        [LocalizedDisplayName("路径")]
-        [LocalizedDescription("例如d:\\test\\mydb.sqlite")]
+        [LocalizedDisplayName("key_163")]
+        [LocalizedDescription("key_87")]
         [PropertyOrder(2)]
         public string FileName
         {
@@ -225,7 +252,9 @@ namespace Hawk.ETL.Plugins.Generators
             }
         }
 
-        [LocalizedDisplayName("执行")]
+        [Browsable(false)]
+        public override string KeyConfig => FileName; 
+        [LocalizedDisplayName("key_34")]
         [PropertyOrder(3)]
         public ReadOnlyCollection<ICommand> Commands2
         {
@@ -235,12 +264,12 @@ namespace Hawk.ETL.Plugins.Generators
                     this,
                     new[]
                     {
-                        new Command("选择文件", obj => Open(), icon: "disk")
+                        new Command(GlobalHelper.Get("key_437"), obj => Open(), icon: "disk")
                     });
             }
         }
 
-        [LocalizedDisplayName("编码")]
+        [LocalizedDisplayName("key_438")]
         [PropertyOrder(4)]
         public virtual EncodingType EncodingType { get; set; }
 

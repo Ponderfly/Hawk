@@ -1,8 +1,10 @@
 ﻿using System;
+using Hawk.Core.Utils;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using Hawk.Core.Connectors;
 using Hawk.Core.Utils.Logs;
@@ -33,6 +35,29 @@ namespace Hawk.Core.Utils
     {
         private static readonly Random random = new Random(unchecked((int) DateTime.Now.Ticks));
 
+        public static Regex UnsafeColumnMatcher = new Regex("[ ()\\[ \\] \\^ *×――(^)$%~!@#$…&%￥+=<>《》!！??？:：•`·、。，；,.;\"‘’“”]");
+        public static string ReplaceErrorChars(string input)
+        {
+            return UnsafeColumnMatcher.Replace(input, "");
+        }
+        public static string ReplaceSplitString(string input, string splitchar)
+        {
+            if (input == null)
+                return "";
+            input = input.Replace("\"\"", "\"");
+            return input.Trim('"');
+        }
+
+
+        public static List<T> IListConvert<T>(this IList list) where T:class
+        {
+            var newlist = new List<T>();
+            foreach(var item in list)
+            {
+                newlist.Add(item as T);
+            }
+            return newlist;
+        }
         public static string GenerateRandomString(int length)
         {
             var checkCode = string.Empty;
@@ -78,6 +103,19 @@ namespace Hawk.Core.Utils
                 collection.Remove(item);
             }
         }
+
+        public static IFreeDocument MergeToDocument(this IEnumerable<IFreeDocument> docs)
+        {
+            var keys = docs.GetKeys();
+            var doc = new FreeDocument();
+            foreach (var key in keys)
+            {
+                doc[key] = docs.Select(d => d[key]).FirstOrDefault(d => d != null);
+            }
+            return doc;
+        }
+
+
         public static IEnumerable<T> Init<T>(this IEnumerable<T> items, Func<T, bool> init = null)
         {
             var count = 0;
@@ -110,20 +148,21 @@ namespace Hawk.Core.Utils
             return document;
         }
 
-        public static string Query(this IFreeDocument document, string query)
+        public static Dictionary<string, string> ToDict(string parameter, char split=' ')
         {
-            if (query == null)
-                return null;
-            query = query.Trim();
-            if (query.StartsWith("[") && query.EndsWith("]"))
+            var dict=new Dictionary<string,string>();
+            if (string.IsNullOrEmpty(parameter))
+                return dict; 
+            foreach (var item in parameter.Split('\n'))
             {
-                var len = query.Length;
-                query = query.Substring(1, len - 2);
-                var result = document?[query];
-                return result?.ToString();
+                var items = item.Split(split);
+                if(items.Length!=2)
+                    continue;
+                dict[items[0]] = dict[items[1]];
             }
-            return query;
-        }
+            return dict;
+        } 
+       
 
         public static IEnumerable<IFreeDocument> Cross(this IEnumerable<IFreeDocument> datas,
             IEnumerable<IFreeDocument> target)
@@ -246,6 +285,9 @@ namespace Hawk.Core.Utils
 
         public static void AddRange<T>(this IList<T> source, IEnumerable<T> items)
         {
+            if(source==null||items==null)
+                return;
+           
             foreach (var d in items)
             {
                 source.Add(d);
@@ -563,7 +605,7 @@ namespace Hawk.Core.Utils
                 }
                 item = (T) Convert.ChangeType(dat[key], typeof (T));
             }
-            catch (Exception ex)
+            catch (Exception )
             {
             }
 
@@ -619,7 +661,18 @@ namespace Hawk.Core.Utils
                 yield return f.Current;
             }
         }
-
+        public static IEnumerable<T> MergeAll<T>(this IEnumerable<T> dict1, Func<T, IEnumerable<T>> generator)
+        where T : IFreeDocument
+        {
+            var f = dict1.GetEnumerator();
+            while (f.MoveNext())
+            {
+                var dict2 = generator(f.Current).FirstOrDefault();
+                if(dict2!=null)
+                f.Current.AddRange(dict2);
+                yield return f.Current;
+            }
+        }
         public static IEnumerable<T> Mix<T>(this IEnumerable<T> dict1, IEnumerable<T> dict2)
             where T : IFreeDocument
         {
@@ -832,7 +885,9 @@ namespace Hawk.Core.Utils
         public static void RemoveElementsNoReturn<TSource>(
             this IList<TSource> source, Func<TSource, bool> filter, Action<TSource> method = null)
         {
-            var indexs = (from d in source where filter(d) select source.IndexOf(d)).ToList();
+            var indexs = (from d in source where filter(d) select source.IndexOf(d))?.ToList();
+            if(!indexs.Any())
+                return;
             indexs.Sort();
             for (var i = indexs.Count - 1; i >= 0; i--)
             {
@@ -926,7 +981,7 @@ namespace Hawk.Core.Utils
                 }
                 catch (Exception ex)
                 {
-                    XLogSys.Print.Error("字典序列化失败" + ex);
+                    XLogSys.Print.Error(GlobalHelper.Get("key_112") + ex.Message);
                     return null;
                 }
 
@@ -979,7 +1034,7 @@ namespace Hawk.Core.Utils
                 }
                 catch (Exception ex)
                 {
-                    XLogSys.Print.Error("字典序列化失败" + ex);
+                    XLogSys.Print.Error(GlobalHelper.Get("key_112") + ex);
                     return default(T);
                 }
 
