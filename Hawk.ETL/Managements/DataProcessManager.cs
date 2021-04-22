@@ -28,6 +28,7 @@ using Hawk.ETL.Process;
 using log4net;
 using log4net.Core;
 using log4net.Repository.Hierarchy;
+using Microsoft.AppCenter.Analytics;
 
 namespace Hawk.ETL.Managements
 {
@@ -121,8 +122,15 @@ namespace Hawk.ETL.Managements
             if (projectItem == null)
                 projectItem = SelectedRemoteProject;
             Project project = null;
+
             if (projectItem == null || projectItem.IsRemote == false)
+
+            {
+                if (CurrentProject != null)
+                    return CurrentProject;
                 return null;
+            }
+
             ControlExtended.SetBusy(ProgressBarState.NoProgress);
             Monitor.Enter(RemoteProjectBuff);
             if (RemoteProjectBuff.TryGetValue(projectItem, out project))
@@ -250,6 +258,17 @@ namespace Hawk.ETL.Managements
             })
             {Description = GlobalHelper.Get("key_268"), Icon = "question"};
 
+
+            var videolink = new BindingAction(GlobalHelper.Get("video_link"), d =>
+                {
+                    var url = "https://space.bilibili.com/312273788";
+                    System.Diagnostics.Process.Start(url);
+                })
+                { Description = GlobalHelper.Get("video_link"), Icon = "question" };
+
+
+
+
             var feedback = new BindingAction(GlobalHelper.Get("key_269"), d =>
             {
                 var url = "https://github.com/ferventdesert/Hawk/issues";
@@ -274,12 +293,13 @@ namespace Hawk.ETL.Managements
             var update = new BindingAction(GlobalHelper.Get("checkupgrade"),
                 d =>
                 {
-                    AutoUpdater.Start("https://raw.githubusercontent.com/ferventdesert/Hawk/global/Hawk/autoupdate.xml");
+                    AutoUpdater.Start("https://raw.githubusercontent.com/ferventdesert/Hawk/master/Hawk/autoupdate.xml");
                 })
             {Description = GlobalHelper.Get("checkupgrade"), Icon = "arrow_up"};
             var helpCommands = new BindingAction(GlobalHelper.Get("key_275")) {Icon = "magnify"};
             helpCommands.ChildActions.Add(mainlink);
             helpCommands.ChildActions.Add(helplink);
+            helpCommands.ChildActions.Add(videolink);
 
             helpCommands.ChildActions.Add(feedback);
             helpCommands.ChildActions.Add(giveme);
@@ -608,8 +628,10 @@ namespace Hawk.ETL.Managements
             {
                 GitHubApi.Connect(ConfigFile.GetConfig().Get<string>("Login"), ConfigFile.GetConfig().Get<string>("Password"));
                 MarketProjects.Clear();
+            
                 ControlExtended.SetBusy(ProgressBarState.Indeterminate,message:GlobalHelper.Get("get_remote_projects"));
                 MarketProjects.AddRange(await GitHubApi.GetProjects(ConfigFile.GetConfig().Get<string>("MarketUrl")));
+                OnPropertyChanged("MarketProjects");
                 ControlExtended.SetBusy(ProgressBarState.NoProgress);
 
             }, icon: "refresh"));
@@ -840,22 +862,27 @@ namespace Hawk.ETL.Managements
         public ListCollectionView ProcessCollectionView { get; set; }
         private ListCollectionView marketCollectionView;
         public ListCollectionView MarketProjectList {
-            get
+             get
             {
                 if (marketCollectionView == null)
                 {
-                    GitHubApi.Connect(ConfigFile.GetConfig().Get<string>("Login"), ConfigFile.GetConfig().Get<string>("Password"));
-                    var result = GitHubApi.GetProjects(ConfigFile.GetConfig().Get<string>("MarketUrl")).Result;
+                  
+
                     ControlExtended.SafeInvoke(
                         () =>
                         {
-                            MarketProjects.Clear();
-                            MarketProjects.AddRange(result);
                             marketCollectionView = new ListCollectionView(MarketProjects);
                         }
                     ,LogType.Info, GlobalHelper.Get("market_login"),true);
-                 
-                 
+                    if (DataMiningConfig.GetConfig<DataMiningConfig>().AutoConnectGithub)
+                    {
+                        GitHubApi.Connect(ConfigFile.GetConfig().Get<string>("Login"),
+                            ConfigFile.GetConfig().Get<string>("Password"));
+                        var result =GitHubApi.GetProjects(ConfigFile.GetConfig().Get<string>("MarketUrl")).Result;
+                        MarketProjects.AddRange(result);
+                    }
+
+
                 }
                 return marketCollectionView;
             }
@@ -903,6 +930,10 @@ namespace Hawk.ETL.Managements
         {
             if (project != null)
             {
+                Analytics.TrackEvent(GlobalHelper.Get("key_307"), new Dictionary<string, string> {
+                    { "Parameter", project.Name },
+
+                });
                 var config = ConfigFile.GetConfig<DataMiningConfig>();
                 config.Projects.RemoveElementsNoReturn(d => string.IsNullOrWhiteSpace(d.SavePath));
                 var first = config.Projects.FirstOrDefault(d => d.SavePath == project.SavePath);
@@ -1059,6 +1090,14 @@ namespace Hawk.ETL.Managements
             if (newOne)
             {
                 var process = PluginProvider.GetObjectByType<IDataProcess>(name);
+                Analytics.TrackEvent(GlobalHelper.Get("key_736"), new Dictionary<string, string> {
+                    { "Parameter", name },
+                    { "isAddToList", isAddToList.ToString() },
+                    { "newOne", newOne.ToString() }
+                    }
+                    
+
+                );
                 if (process != null)
                 {
                     if (isAddToList)
